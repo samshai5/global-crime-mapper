@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Crime Mapper</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+
+        /* Glass panel base */
+        .glass {
+            background: rgba(10, 10, 20, 0.82);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 14px;
+            color: #fff;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+
+        /* Legend */
+        .legend {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            padding: 18px 20px;
+            min-width: 290px;
+        }
+
+        .legend h2 {
+            font-size: 1.2em;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e74c3c;
+        }
+
+        .crime-item {
+            display: flex;
+            align-items: center;
+            margin: 7px 0;
+            padding: 4px 6px;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .crime-item:hover { background: rgba(255,255,255,0.08); }
+
+        .crime-dot {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 2px solid rgba(255,255,255,0.6);
+            flex-shrink: 0;
+        }
+
+        .danger-levels { margin-top: 12px; }
+        .danger-bar {
+            height: 8px;
+            background: linear-gradient(to right, #2ecc71, #f39c12, #e74c3c, #8e44ad);
+            border-radius: 4px;
+            margin: 6px 0 4px;
+        }
+        .danger-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: rgba(255,255,255,0.6);
+        }
+
+        /* Search */
+        .search-container {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            width: 280px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 11px 18px;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 25px;
+            background: rgba(10,10,20,0.85);
+            backdrop-filter: blur(12px);
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input::placeholder { color: rgba(255,255,255,0.5); }
+        .search-input:focus { border-color: #3498db; }
+
+        /* Search suggestions */
+        .suggestions {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0; right: 0;
+            background: rgba(10,10,20,0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            display: none;
+            z-index: 1001;
+        }
+
+        .suggestion-item {
+            padding: 9px 18px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .suggestion-item:hover { background: rgba(52,152,219,0.3); }
+
+        /* Info panel */
+        .info-panel {
+            position: fixed;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            z-index: 1000;
+            padding: 16px 22px;
+            max-width: 480px;
+            width: calc(100vw - 40px);
+            text-align: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        .info-panel.active {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+            pointer-events: auto;
+        }
+
+        .info-panel h3 { font-size: 15px; margin-bottom: 8px; }
+        .info-panel p, .info-panel li { font-size: 13px; line-height: 1.6; }
+
+        /* Controls */
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-btn {
+            width: 46px; height: 46px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(10,10,20,0.85);
+            backdrop-filter: blur(10px);
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.15s;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .control-btn:hover {
+            background: rgba(52,152,219,0.75);
+            transform: scale(1.1);
+        }
+
+        /* Heatmap toggle */
+        .heatmap-btn {
+            position: fixed;
+            bottom: 30px;
+            left: 20px;
+            z-index: 1000;
+            padding: 11px 22px;
+            border-radius: 25px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(10,10,20,0.85);
+            backdrop-filter: blur(10px);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .heatmap-btn:hover { background: rgba(231,76,60,0.7); }
+        .heatmap-btn.active { background: rgba(231,76,60,0.9); border-color: #e74c3c; }
+
+        /* Zoom info badge */
+        .zoom-badge {
+            position: fixed;
+            top: 70px;
+            left: 20px;
+            z-index: 1000;
+            font-size: 12px;
+            padding: 5px 14px;
+            border-radius: 20px;
+            background: rgba(10,10,20,0.75);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.7);
+            pointer-events: none;
+        }
+
+        /* Fly-to button inside panel */
+        .fly-btn {
+            margin-top: 10px;
+            padding: 7px 16px;
+            background: #3498db;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+
+        .fly-btn:hover { background: #217dbb; }
+
+        /* Pulse animation */
+        @keyframes pulse {
+            0%   { transform: scale(1);   opacity: 1; }
+            50%  { transform: scale(1.15); opacity: 0.75; }
+            100% { transform: scale(1);   opacity: 1; }
+        }
+
+        .custom-crime-icon { background: transparent !important; border: none !important; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .legend { top: auto; bottom: 90px; right: 10px; min-width: 230px; font-size: 12px; }
+            .search-container { width: 220px; }
+            .info-panel { max-width: calc(100vw - 24px); padding: 12px 14px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- Search -->
+<div class="search-container">
+    <input type="text" class="search-input" id="searchInput" placeholder="🔍 Search city..." autocomplete="off">
+    <div class="suggestions glass" id="suggestions"></div>
+</div>
+
+<div class="zoom-badge" id="zoomBadge">Zoom: 2</div>
+
+<!-- Legend -->
+<div class="legend glass">
+    <h2>🗺️ Global Crime Mapper</h2>
+    <div id="legendItems"></div>
+    <div class="danger-levels">
+        <strong style="font-size:13px;">Danger Level</strong>
+        <div class="danger-bar"></div>
+        <div class="danger-labels">
+            <span>Low</span><span>Medium</span><span>High</span><span>Critical</span>
+        </div>
+    </div>
+</div>
+
+<!-- Info Panel -->
+<div class="info-panel glass" id="infoPanel">
+    <div id="infoContent"></div>
+</div>
+
+<!-- Controls -->
+<div class="controls">
+    <button class="control-btn" onclick="resetView()" title="Reset View (R)">🏠</button>
+    <button class="control-btn" onclick="toggleNightMode()" title="Night Mode (N)">🌙</button>
+</div>
+
+<button class="heatmap-btn" id="heatmapBtn" onclick="toggleHeatmap()">🔥 Heatmap</button>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+// ── MAP SETUP ──────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: false }).setView([20, 0], 2);
+
+const lightTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © CARTO',
+    maxZoom: 19
+}).addTo(map);
+
+const darkTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © CARTO',
+    maxZoom: 19
+});
+
+let isNightMode = false;
+
+// ── CRIME DATA ─────────────────────────────────────────────────────
+const crimeData = [
+    // North America
+    { city:"Chicago, USA",          lat:41.8781,  lng:-87.6298,  crimeType:"violent",    dangerLevel:8,  crimes:["Armed Robbery","Gang Violence","Assault"],           trend:"Increasing",  policePresence:"Moderate",              population:2700000 },
+    { city:"Detroit, USA",          lat:42.3314,  lng:-83.0458,  crimeType:"violent",    dangerLevel:9,  crimes:["Carjacking","Homicide","Drug Trafficking"],          trend:"Stable",      policePresence:"High",                  population:670000  },
+    { city:"Los Angeles, USA",      lat:34.0522,  lng:-118.2437, crimeType:"property",   dangerLevel:7,  crimes:["Burglary","Vehicle Theft","Shoplifting"],            trend:"Decreasing",  policePresence:"High",                  population:3900000 },
+    { city:"New York City, USA",    lat:40.7128,  lng:-74.0060,  crimeType:"property",   dangerLevel:5,  crimes:["Pickpocketing","Fraud","Cybercrime"],                trend:"Decreasing",  policePresence:"Very High",             population:8400000 },
+    { city:"Houston, USA",          lat:29.7604,  lng:-95.3698,  crimeType:"violent",    dangerLevel:7,  crimes:["Auto Theft","Robbery","Assault"],                    trend:"Stable",      policePresence:"High",                  population:2300000 },
+    { city:"Mexico City, Mexico",   lat:19.4326,  lng:-99.1332,  crimeType:"gang",       dangerLevel:8,  crimes:["Cartel Violence","Kidnapping","Extortion"],          trend:"Increasing",  policePresence:"Low",                   population:9200000 },
+    // South America
+    { city:"São Paulo, Brazil",     lat:-23.5505, lng:-46.6333,  crimeType:"violent",    dangerLevel:8,  crimes:["Armed Robbery","Carjacking","Express Kidnapping"],   trend:"Stable",      policePresence:"Moderate",              population:12300000},
+    { city:"Rio de Janeiro, Brazil",lat:-22.9068, lng:-43.1729,  crimeType:"gang",       dangerLevel:9,  crimes:["Drug Gang Violence","Tourist Robbery","Theft"],      trend:"Increasing",  policePresence:"High in Tourist Areas", population:6700000 },
+    { city:"Caracas, Venezuela",    lat:10.4806,  lng:-66.9036,  crimeType:"violent",    dangerLevel:10, crimes:["Homicide","Kidnapping","Armed Robbery"],             trend:"Critical",    policePresence:"Very Low",              population:2100000 },
+    { city:"Bogotá, Colombia",      lat:4.7110,   lng:-74.0721,  crimeType:"drug",       dangerLevel:7,  crimes:["Drug Trafficking","Pickpocketing","Extortion"],      trend:"Decreasing",  policePresence:"Moderate",              population:7400000 },
+    // Europe
+    { city:"London, UK",            lat:51.5074,  lng:-0.1278,   crimeType:"property",   dangerLevel:5,  crimes:["Phone Theft","Burglary","Cybercrime"],               trend:"Stable",      policePresence:"High",                  population:8900000 },
+    { city:"Paris, France",         lat:48.8566,  lng:2.3522,    crimeType:"property",   dangerLevel:6,  crimes:["Pickpocketing","Scam","Vehicle Theft"],              trend:"Increasing",  policePresence:"High in Tourist Areas", population:2200000 },
+    { city:"Moscow, Russia",        lat:55.7558,  lng:37.6173,   crimeType:"cybercrime", dangerLevel:7,  crimes:["Cyber Fraud","Identity Theft","Hacking"],            trend:"Increasing",  policePresence:"Moderate",              population:12500000},
+    { city:"Naples, Italy",         lat:40.8518,  lng:14.2681,   crimeType:"gang",       dangerLevel:7,  crimes:["Camorra Activity","Theft","Scams"],                  trend:"Stable",      policePresence:"Moderate",              population:960000  },
+    // Africa
+    { city:"Johannesburg, S. Africa",lat:-26.2041,lng:28.0473,   crimeType:"violent",    dangerLevel:9,  crimes:["Carjacking","Home Invasion","Armed Robbery"],        trend:"Increasing",  policePresence:"Low",                   population:5600000 },
+    { city:"Cape Town, S. Africa",  lat:-33.9249, lng:18.4241,   crimeType:"gang",       dangerLevel:8,  crimes:["Gang Violence","Drug Trafficking","Robbery"],        trend:"Stable",      policePresence:"Moderate",              population:4300000 },
+    { city:"Lagos, Nigeria",        lat:6.5244,   lng:3.3792,    crimeType:"violent",    dangerLevel:8,  crimes:["Armed Robbery","Kidnapping","Fraud"],                trend:"Increasing",  policePresence:"Low",                   population:14800000},
+    { city:"Nairobi, Kenya",        lat:-1.2921,  lng:36.8219,   crimeType:"property",   dangerLevel:7,  crimes:["Carjacking","Mugging","Cybercrime"],                 trend:"Stable",      policePresence:"Moderate",              population:4400000 },
+    // Asia
+    { city:"Mumbai, India",         lat:19.0760,  lng:72.8777,   crimeType:"property",   dangerLevel:6,  crimes:["Theft","Burglary","Fraud"],                         trend:"Stable",      policePresence:"Moderate",              population:12400000},
+    { city:"Manila, Philippines",   lat:14.5995,  lng:120.9842,  crimeType:"drug",       dangerLevel:7,  crimes:["Drug-Related Violence","Robbery","Theft"],           trend:"Decreasing",  policePresence:"High",                  population:1800000 },
+    { city:"Karachi, Pakistan",     lat:24.8607,  lng:67.0011,   crimeType:"violent",    dangerLevel:8,  crimes:["Targeted Killings","Extortion","Street Crime"],      trend:"Decreasing",  policePresence:"Moderate",              population:16000000},
+    { city:"Bangkok, Thailand",     lat:13.7563,  lng:100.5018,  crimeType:"property",   dangerLevel:5,  crimes:["Tourist Scams","Pickpocketing","Theft"],             trend:"Stable",      policePresence:"High",                  population:10700000},
+    // Oceania
+    { city:"Sydney, Australia",     lat:-33.8688, lng:151.2093,  crimeType:"property",   dangerLevel:4,  crimes:["Burglary","Vehicle Theft","Drug Possession"],        trend:"Stable",      policePresence:"High",                  population:5300000 },
+];
+
+// ── CRIME COLORS ───────────────────────────────────────────────────
+const crimeColors = {
+    violent:    '#e74c3c',
+    property:   '#f39c12',
+    drug:       '#3498db',
+    gang:       '#9b59b6',
+    cybercrime: '#1abc9c'
+};
+
+const crimeLabels = {
+    violent:    'Violent Crime',
+    property:   'Property Crime',
+    drug:       'Drug-Related',
+    gang:       'Gang Activity',
+    cybercrime: 'Cybercrime / Fraud'
+};
+
+// ── BUILD LEGEND ───────────────────────────────────────────────────
+const legendEl = document.getElementById('legendItems');
+Object.entries(crimeColors).forEach(([type, color]) => {
+    legendEl.innerHTML += `
+        <div class="crime-item">
+            <div class="crime-dot" style="background:${color};"></div>
+            <span>${crimeLabels[type]}</span>
+        </div>`;
+});
+
+// ── HEATMAP ────────────────────────────────────────────────────────
+let heatmapLayer = null;
+let showHeatmap = false;
+
+function toggleHeatmap() {
+    const btn = document.getElementById('heatmapBtn');
+    if (showHeatmap) {
+        if (heatmapLayer) { map.removeLayer(heatmapLayer); heatmapLayer = null; }
+        btn.classList.remove('active');
+        btn.innerHTML = '🔥 Heatmap';
+    } else {
+        const pts = crimeData.map(c => [c.lat, c.lng, c.dangerLevel / 10]);
+        heatmapLayer = L.heatLayer(pts, {
+            radius: 30, blur: 20, maxZoom: 10, max: 1.0,
+            gradient: { 0.2:'#2ecc71', 0.5:'#f39c12', 0.75:'#e74c3c', 1.0:'#8e44ad' }
+        }).addTo(map);
+        btn.classList.add('active');
+        btn.innerHTML = '📍 Markers';
+    }
+    showHeatmap = !showHeatmap;
+}
+
+// ── MARKERS ────────────────────────────────────────────────────────
+function createIcon(crimeType, dangerLevel) {
+    const size = 28 + dangerLevel * 2.5;
+    const color = crimeColors[crimeType] || '#ffffff';
+    return L.divIcon({
+        className: 'custom-crime-icon',
+        html: `<div style="
+            width:${size}px; height:${size}px;
+            background:${color};
+            border-radius:50%;
+            border:3px solid rgba(255,255,255,0.85);
+            box-shadow:0 0 10px ${color}, 0 0 22px ${color}55;
+            animation:pulse 2s infinite;
+            display:flex; align-items:center; justify-content:center;
+            font-size:${Math.round(size * 0.38)}px;">⚠️</div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2]
+    });
+}
+
+const markers = [];
+
+crimeData.forEach(crime => {
+    const marker = L.marker([crime.lat, crime.lng], { icon: createIcon(crime.crimeType, crime.dangerLevel) })
+        .addTo(map);
+
+    marker.bindPopup(`<strong>${crime.city}</strong><br>Danger: ${crime.dangerLevel}/10`, { closeButton: false });
+    marker.on('mouseover', function() { this.openPopup(); });
+    marker.on('mouseout',  function() { this.closePopup(); });
+    marker.on('click', () => showInfo(crime));
+    markers.push({ marker, crime });
+});
+
+// ── INFO PANEL ─────────────────────────────────────────────────────
+let infoPanelTimer = null;
+
+function showInfo(crime) {
+    const panel  = document.getElementById('infoPanel');
+    const content = document.getElementById('infoContent');
+    const color  = crimeColors[crime.crimeType] || '#fff';
+    const bars   = '█'.repeat(crime.dangerLevel) + '░'.repeat(10 - crime.dangerLevel);
+
+    content.innerHTML = `
+        <h3 style="color:${color}; margin-bottom:8px;">📍 ${crime.city}</h3>
+        <p><strong>Type:</strong> ${crimeLabels[crime.crimeType]}</p>
+        <p><strong>Danger:</strong> <span style="color:${color}; font-family:monospace;">${bars}</span> ${crime.dangerLevel}/10</p>
+        <p><strong>Crimes:</strong> ${crime.crimes.join(', ')}</p>
+        <p><strong>Trend:</strong> ${crime.trend}</p>
+        <p><strong>Police:</strong> ${crime.policePresence}</p>
+        <p><strong>Population:</strong> ${crime.population.toLocaleString()}</p>
+        <button class="fly-btn" onclick="flyTo(${crime.lat}, ${crime.lng})">🔍 Zoom to location</button>
+    `;
+
+    panel.classList.add('active');
+    clearTimeout(infoPanelTimer);
+    infoPanelTimer = setTimeout(() => panel.classList.remove('active'), 10000);
+}
+
+function hideInfo() {
+    clearTimeout(infoPanelTimer);
+    document.getElementById('infoPanel').classList.remove('active');
+}
+
+// ── FLY TO ─────────────────────────────────────────────────────────
+function flyTo(lat, lng) {
+    map.flyTo([lat, lng], 13, { duration: 1.8, easeLinearity: 0.25 });
+    const pulse = L.circle([lat, lng], {
+        color: '#e74c3c', fillColor: '#e74c3c', fillOpacity: 0.25, radius: 600
+    }).addTo(map);
+    setTimeout(() => map.removeLayer(pulse), 3000);
+}
+
+// ── RESET VIEW ─────────────────────────────────────────────────────
+function resetView() {
+    map.flyTo([20, 0], 2, { duration: 1.5 });
+    hideInfo();
+}
+
+// ── NIGHT MODE ─────────────────────────────────────────────────────
+function toggleNightMode() {
+    if (isNightMode) {
+        map.removeLayer(darkTiles);
+        lightTiles.addTo(map);
+    } else {
+        map.removeLayer(lightTiles);
+        darkTiles.addTo(map);
+    }
+    isNightMode = !isNightMode;
+}
+
+// ── SEARCH WITH SUGGESTIONS ────────────────────────────────────────
+const searchInput   = document.getElementById('searchInput');
+const suggestionsEl = document.getElementById('suggestions');
+
+searchInput.addEventListener('input', function() {
+    const term = this.value.trim().toLowerCase();
+    suggestionsEl.innerHTML = '';
+    suggestionsEl.style.display = 'none';
+    if (term.length < 2) return;
+
+    const matches = crimeData.filter(c => c.city.toLowerCase().includes(term)).slice(0, 6);
+    if (matches.length === 0) return;
+
+    matches.forEach(crime => {
+        const item = document.createElement('div');
+        item.className = 'suggestion-item';
+        item.innerHTML = `<span style="color:${crimeColors[crime.crimeType]};">●</span> ${crime.city}`;
+        item.addEventListener('click', () => {
+            searchInput.value = crime.city;
+            suggestionsEl.style.display = 'none';
+            flyTo(crime.lat, crime.lng);
+            showInfo(crime);
+        });
+        suggestionsEl.appendChild(item);
+    });
+    suggestionsEl.style.display = 'block';
+});
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('.search-container')) {
+        suggestionsEl.style.display = 'none';
+    }
+});
+
+// ── ZOOM BADGE ─────────────────────────────────────────────────────
+map.on('zoomend', function() {
+    document.getElementById('zoomBadge').textContent = 'Zoom: ' + map.getZoom();
+});
+
+// ── CLICK MAP — nearest crimes ─────────────────────────────────────
+map.on('click', function(e) {
+    const { lat, lng } = e.latlng;
+    const nearest = crimeData
+        .map(c => ({ ...c, dist: Math.hypot(c.lat - lat, c.lng - lng) }))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 3);
+
+    const panel  = document.getElementById('infoPanel');
+    const content = document.getElementById('infoContent');
+    let html = '<h3 style="margin-bottom:8px;">🔍 Nearest Crime Areas</h3>';
+    nearest.forEach(c => {
+        html += `<div style="margin:7px 0; padding:8px; background:rgba(255,255,255,0.07); border-radius:6px; font-size:13px;">
+            <strong style="color:${crimeColors[c.crimeType]};">${c.city}</strong> — Danger ${c.dangerLevel}/10<br>
+            <small>${c.crimes.join(', ')}</small>
+        </div>`;
+    });
+    content.innerHTML = html;
+    panel.classList.add('active');
+    clearTimeout(infoPanelTimer);
+    infoPanelTimer = setTimeout(() => panel.classList.remove('active'), 8000);
+});
+
+// ── KEYBOARD SHORTCUTS ─────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+    if (e.target === searchInput) return;
+    switch(e.key.toLowerCase()) {
+        case 'r': resetView();       break;
+        case 'h': toggleHeatmap();   break;
+        case 'n': toggleNightMode(); break;
+        case 'f': searchInput.focus(); e.preventDefault(); break;
+        case 'escape': hideInfo();   break;
+    }
+});
+
+// ── WELCOME MESSAGE ────────────────────────────────────────────────
+setTimeout(() => {
+    const content = document.getElementById('infoContent');
+    content.innerHTML = `
+        <h3 style="margin-bottom:8px;">🌍 Welcome to Global Crime Mapper</h3>
+        <ul style="text-align:left; margin:8px 0; font-size:13px; line-height:1.8;">
+            <li>🔴 Red — Violent Crime</li>
+            <li>🟠 Orange — Property Crime</li>
+            <li>🔵 Blue — Drug-Related</li>
+            <li>🟣 Purple — Gang Activity</li>
+            <li>🟢 Green — Cybercrime</li>
+        </ul>
+        <p style="font-size:12px; color:rgba(255,255,255,0.6);">Click markers · Search cities · Press H for heatmap</p>
+    `;
+    document.getElementById('infoPanel').classList.add('active');
+    infoPanelTimer = setTimeout(() => document.getElementById('infoPanel').classList.remove('active'), 7000);
+}, 800);
+
+console.log('%c🗺️ Global Crime Mapper — github.com/samshai5', 'color:#e74c3c; font-weight:bold;');
+console.log('Shortcuts: R=Reset  H=Heatmap  N=Night  F=Search  ESC=Close panel');
+</script>
+</body>
+</html>
